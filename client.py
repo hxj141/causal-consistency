@@ -3,13 +3,13 @@ import os
 import pickle
 import time
 
-identity = input("Are you Alice (A) or Bob (B)?")
+identity = input("Are you Alice (A) or Bob (B)?\n")
 if identity == "A": # Default Alice to West datacenter
     name = "A"
-    port = 7990 
+    port = 8000 
 if identity == "B": # Default Bob to Central datacenter
     name = "B"
-    port = 7991 
+    port = 8001 
 
 clock = 0 # This clock will keep track of what is going on
 
@@ -22,7 +22,7 @@ while True:
     # Alice logic
     if name == "A":
         while True: 
-            command = input("What would you like to send?")
+            command = input("What would you like to send?\n")
             if command == "lost": # Write "lost" to DC1
                 data = pickle.dumps(["W_LOST", srv_id]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
@@ -31,9 +31,10 @@ while True:
                 data = pickle.dumps(["W_FOUND", srv_id]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
             if command == "wait": # Wait for t seconds and adjust clock accordingly
-                t = int(input("How many seconds would you like to wait?"))
+                t = int(input("How many seconds would you like to wait?\n"))
                 time.sleep(t) 
-                clock += t       
+                clock += t
+                print("The time is now " + str(clock) + " seconds.")       
     # Bob logic
     if name == "B":
         while True: 
@@ -43,7 +44,7 @@ while True:
                 data = pickle.dumps(["W_GLAD", srv_id]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
             if command == "wait": # Wait for t seconds and adjust clock accordingly
-                t = int(input("How many seconds would you like to wait?"))
+                t = int(input("How many seconds would you like to wait?\n"))
                 time.sleep(t) 
                 clock += t        
 
