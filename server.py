@@ -3,11 +3,6 @@ import threading
 import time
 import pickle
 
-# 156, DELAY IF TIMESTAMP IS LARGER THAN CURRENT ONE PLUS DELAy
-# WILL PROBABLY HAVE TO DO THIS FOR GLAD
-# CHECK IF RPL SOCKET LIST IS NECESSARY
-# MAY BE ABLE TO REMOVE READ SIGNALS ENTIRELY 
-
 # Set up global variables
 status = []  # Message to pass data between threads
 dependency = {}  # Dependency data for the server, used as main reference for consistency
@@ -107,11 +102,6 @@ def client_target(cli, client):
                 else:
                     print("Could not commit message. Alice has not yet found her wedding ring.")
                     op_signal = "OP_NULL"
-        if op_signal[0:2] == "R_":       
-            if op_signal[2:] == "FOUND":
-                op_signal = "OP_NULL"
-            if op_signal[2:] == "GLAD":
-                op_signal = "OP_NULL"
         if op_signal == "OP_NULL":
             continue
         if not data: 
