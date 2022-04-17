@@ -52,7 +52,6 @@ def client_target(cli, client):
     while True:
         data = cli.recv(1024)
         data = pickle.loads(data)
-        print(data)
         op_signal = data[0]
         if op_signal[0:2] == "W_":
             if op_signal[2:] == "LOST":
@@ -80,15 +79,25 @@ def client_target(cli, client):
                     op_signal = "OP_NULL"
             if op_signal[2:] == "GLAD":
                 dep_check = 0
-                # Checks to see if FOUND is in any of the current dicts
+                time_check = 0
+                # Checks to see if FOUND is in any of the current dicts at the given time
                 for d in dependency:
                     if len(dependency[d]) != 0:
                         for i in range(0,len(dependency[d])):
                             if "FOUND" in dependency[d][i][0]:
                                 dep_check = 1
+                                time_check = dependency[d][i][1][1]
                                 break
                 if dep_check == 1:
-                    clock = data[2]
+                    # Check to see if the dependency is in on time, if not, stall until it arrives
+                    if data[2] < time_check:
+                        delta_time = time_check - data[2] + 1
+                        print("GLAD recieved before dependency, stalling for " + str(delta_time) + " seconds.")
+                        time.sleep(delta_time)
+                        clock = data[2] + delta_time
+                    else:
+                        clock = data[2]
+                    # Sends out signal with the right clock
                     dependency[client].append([op_signal[2:], [loc, clock]])
                     status = [op_signal[2:], [loc, clock],client]
                     print("Bob: I am glad to hear that! (recieved directly from client at time " + str(clock) + ")")
@@ -98,9 +107,6 @@ def client_target(cli, client):
                 else:
                     print("Could not commit message. Alice has not yet found her wedding ring.")
                     op_signal = "OP_NULL"
-                # Somehow delay signal to avoid inconsistency
-                else:
-                    print("")
         if op_signal[0:2] == "R_":       
             if op_signal[2:] == "FOUND":
                 op_signal = "OP_NULL"
@@ -158,19 +164,48 @@ def replica_target(in_port):
         dep_info = pickle.loads(data)
         client = dep_info[2]
         delay = dep_info[3]
-        # Put information into dict, depending on if it already is there or not
-        if client in dependency.keys():
-            dependency[client].append([dep_info[0], [dep_info[1][0], dep_info[1][1]+delay]])
-        else:
-            dependency[client] = [[dep_info[0], [dep_info[1][0], dep_info[1][1]+delay]]]
+        new_time = dep_info[1][1]+delay
+
         # Print message once recieved
         if dep_info[0] == "LOST":
-            print("Alice: I have lost my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
-        if dep_info[0] == "FOUND":
-            print("Alice: I have found my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
-        if dep_info[0] == "GLAD":
-            print("Bob: I am glad to hear that! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
+            print("Alice: I have lost my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(new_time) +  ")")
 
+        if dep_info[0] == "FOUND":
+            # In order to check the dependency, the dict has to be scanned due to how its set up. Wherever LOST is, use index to find the time it was sent
+            old_time = 0 
+            for d in dependency[client]: 
+                if "LOST" in d:
+                    old_time = d[1][1]
+                    break            
+            # Check if the clocks align for the dependency and the new message. If not, delay and update time.
+            if new_time < old_time: 
+                delta_time = old_time - new_time + 1
+                print("FOUND recieved before dependency, stalling for " + str(delta_time) + "seconds.")
+                time.sleep(delta_time)
+                new_time = new_time + delta_time
+            print("Alice: I have found my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(new_time) +  ")")
+
+        if dep_info[0] == "GLAD":
+            # In order to check the dependency, the dict has to be scanned due to how its set up. Wherever LOST is, use index to find the time it was sent
+            old_time = 0
+            for d in dependency:
+                if len(dependency[d]) != 0:
+                    for i in range(0,len(dependency[d])):
+                        if "FOUND" in dependency[d][i][0]:
+                            old_time = dependency[d][i][1][1]
+            # Check if the clocks align for the dependency and the new message. If not, delay and update time.
+            if new_time < old_time: 
+                delta_time = old_time - new_time + 1
+                print("GLAD recieved before dependency, stalling for " + str(delta_time) + "seconds.")
+                time.sleep(delta_time)
+                new_time = old_time + delta_time
+            print("Bob: I am glad to hear that! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(new_time) +  ")")
+
+        # Put information into dict, depending on if it already is there or not
+        if client in dependency.keys():
+            dependency[client].append([dep_info[0], [dep_info[1][0], new_time]])
+        else:
+            dependency[client] = [[dep_info[0], [dep_info[1][0], new_time]]]
 
 #Establish server connection, wait for some time to allow me to get all the servers online, then begin connecting them to each other
 listenConnect = threading.Thread(target=primary_listen, args=()).start()
