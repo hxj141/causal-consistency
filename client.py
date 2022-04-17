@@ -24,11 +24,13 @@ while True:
         while True: 
             command = input("What would you like to send?\n")
             if command == "lost": # Write "lost" to DC1
-                data = pickle.dumps(["W_LOST", srv_id]) # Message being sent, [datacenter ID, timestamp]
+                clock += 1
+                data = pickle.dumps(["W_LOST", srv_id, clock]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
             if command == "found": # Write "found" to DC1
-                # Read first to check if DC1 has lost 
-                data = pickle.dumps(["W_FOUND", srv_id]) # Message being sent, [datacenter ID, timestamp]
+                # Read first to check if DC1 has lost
+                clock += 1 
+                data = pickle.dumps(["W_FOUND", srv_id, clock]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
             if command == "wait": # Wait for t seconds and adjust clock accordingly
                 t = int(input("How many seconds would you like to wait?\n"))
@@ -38,14 +40,13 @@ while True:
     # Bob logic
     if name == "B":
         while True: 
-            command = input("What would you like to do?")
+            command = input("What would you like to do?\n")
             if command == "glad": # Write "glad" to DC2
-                # Read first to check if DC2 has foundN
-                data = pickle.dumps(["W_GLAD", srv_id]) # Message being sent, [datacenter ID, timestamp]
+                # Read first to check if DC2 has found
+                data = pickle.dumps(["W_GLAD", srv_id, clock]) # Message being sent, [datacenter ID, timestamp]
                 s.send(data)
             if command == "wait": # Wait for t seconds and adjust clock accordingly
                 t = int(input("How many seconds would you like to wait?\n"))
                 time.sleep(t) 
                 clock += t        
 
-#Alice: I've lost my wedding ring."  "Bob: I'm glad to hear that."

@@ -3,10 +3,16 @@ import threading
 import time
 import pickle
 
+# 156, DELAY IF TIMESTAMP IS LARGER THAN CURRENT ONE PLUS DELAy
+# WILL PROBABLY HAVE TO DO THIS FOR GLAD
+# CHECK IF RPL SOCKET LIST IS NECESSARY
+# MAY BE ABLE TO REMOVE READ SIGNALS ENTIRELY 
+
 # Set up global variables
 status = []  # Message to pass data between threads
 dependency = {}  # Dependency data for the server, used as main reference for consistency
 loc = int(input("Which data center is this (1, 2, or 3)?\n"))  # Server ID, user input
+clock = 0 # Lamport clock to handle timestamps
 
 # Depending on where the server is, set port and recieve ports accordingly
 if loc == 1: 
@@ -30,10 +36,10 @@ cli_sock.listen()
 
 # Thread which handles client connections to the server
 def client_target(cli, client):
-    # set up variables to work with
+    # declare global variables
     global status
     global dependency
-    clock = 0 # Lamport clock to handle timestamps
+    global clock
     # Get client identity
     data = cli.recv(1024)
     if data.decode() == "A":
@@ -46,13 +52,14 @@ def client_target(cli, client):
     while True:
         data = cli.recv(1024)
         data = pickle.loads(data)
+        print(data)
         op_signal = data[0]
         if op_signal[0:2] == "W_":
             if op_signal[2:] == "LOST":
-                clock += 1
+                clock = data[2]
                 dependency[client].append([op_signal[2:], [loc, clock]])
                 status = [op_signal[2:], [loc, clock],client]
-                print("Alice: I have lost my wedding ring!")
+                print("Alice: I have lost my wedding ring! (recieved directly from client at time " + str(clock) + ")")
                 op_signal = "OP_NULL"
             if op_signal[2:] == "FOUND":
                 # Perform dependency check recursively
@@ -63,26 +70,34 @@ def client_target(cli, client):
                         break
                 if dep_check == 1:
                 # Add to dict and send signal to primary_target thread to begin propogating
-                    clock += 1
+                    clock = data[2]
                     dependency[client].append([op_signal[2:], [loc, clock]])
                     status = [op_signal[2:], [loc, clock],client]
-                    print("Alice: I have found my wedding ring!")
+                    print("Alice: I have found my wedding ring! (recieved directly from client at time " + str(clock) + ")")
                     op_signal = "OP_NULL"
                 else:
                     print("Could not commit message. Alice has not yet lost her wedding ring.")
+                    op_signal = "OP_NULL"
             if op_signal[2:] == "GLAD":
                 dep_check = 0
-                for d in dependency: 
-                    if dependency[d][0] == "FOUND": # If FOUND appears in any of the dependency entries
-                        dep_check = 1
-                        break
+                # Checks to see if FOUND is in any of the current dicts
+                for d in dependency:
+                    if len(dependency[d]) != 0:
+                        for i in range(0,len(dependency[d])):
+                            if "FOUND" in dependency[d][i][0]:
+                                dep_check = 1
+                                break
                 if dep_check == 1:
-                    clock += 1
+                    clock = data[2]
                     dependency[client].append([op_signal[2:], [loc, clock]])
                     status = [op_signal[2:], [loc, clock],client]
-                    print("Bob: I am glad to hear that!")
+                    print("Bob: I am glad to hear that! (recieved directly from client at time " + str(clock) + ")")
                     op_signal = "OP_NULL"
                     break
+                # Don't commit message if dependencies aren't met
+                else:
+                    print("Could not commit message. Alice has not yet found her wedding ring.")
+                    op_signal = "OP_NULL"
                 # Somehow delay signal to avoid inconsistency
                 else:
                     print("")
@@ -98,12 +113,12 @@ def client_target(cli, client):
 
 # Sets up server to listen to other servers
 def primary_listen():
-    print("Established a server on port " + str(srv_port))
+    print("Server " + str(srv_port-8099) + " is online")
     srv_sock.bind(('127.0.0.1', srv_port))
     srv_sock.listen()
     while True:
         srv, address = srv_sock.accept()
-        print("The server on port " + str(address[1]) + " is now accepting requests.")
+        print("Server on port " + str(address[1]) + " ready to accept requests")
         serverConnect = threading.Thread(target=primary_target, args=(srv,)).start()
         
 # Propogates updates to other servers
@@ -118,18 +133,21 @@ def primary_target(srv):
             # Simulate a delay which scales with distance
             delay = abs(peer_loc-loc)*2
             time.sleep(delay)
-            # Send data over to requesting server
+            # Send data over to requesting server, along with delay
+            status.append(delay)
             data = pickle.dumps(status)
             srv.send(data)
+            del status[-1]
             if delay == 2: # Prevent thread from looping before all changes have been propogated
                 time.sleep(2.1)
-            if delay == 4: # Only clear when we know its the last propogated signal
+            if delay == 4 or loc == 2: # Only clear when we know its the last propogated signal
                 status = [] # Reset status list to indicate that we are done updating the other servers
             
 # Handles incoming requests from other servers
 def replica_target(in_port):
+    global clock
     # Connect to corresponding server, inform them of your location
-    print("Accepting requests from the server on port " + str(in_port))
+    print("Accepting requests from Server " + str(in_port-8099))
     rpl_sock_list.append(socket.socket())
     rpl_sock = rpl_sock_list[-1]
     rpl_sock.connect(('127.0.0.1', in_port))
@@ -139,18 +157,19 @@ def replica_target(in_port):
         data = rpl_sock.recv(1024)
         dep_info = pickle.loads(data)
         client = dep_info[2]
+        delay = dep_info[3]
         # Put information into dict, depending on if it already is there or not
         if client in dependency.keys():
-            dependency[client].append([dep_info[0], [dep_info[1][0], dep_info[1][1]]])
+            dependency[client].append([dep_info[0], [dep_info[1][0], dep_info[1][1]+delay]])
         else:
-            dependency[client] = [[dep_info[0], [dep_info[1][0], dep_info[1][1]]]]
+            dependency[client] = [[dep_info[0], [dep_info[1][0], dep_info[1][1]+delay]]]
         # Print message once recieved
         if dep_info[0] == "LOST":
-            print("Alice: I have lost my wedding ring!")
+            print("Alice: I have lost my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
         if dep_info[0] == "FOUND":
-            print("Alice: I have found my wedding ring!")
+            print("Alice: I have found my wedding ring! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
         if dep_info[0] == "GLAD":
-            print("Bob: I am glad to hear that!")
+            print("Bob: I am glad to hear that! (recieved from Server " + str(dep_info[1][0]) + " at time " + str(dep_info[1][1]+delay) +  ")")
 
 
 #Establish server connection, wait for some time to allow me to get all the servers online, then begin connecting them to each other
